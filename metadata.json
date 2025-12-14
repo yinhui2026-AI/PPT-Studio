@@ -1,0 +1,5 @@
+{
+  "name": "Gemini PPT Workbench",
+  "description": "An AI-powered workbench to generate professional presentation slides from text using Gemini 3 Pro and Nano Banana Pro models.",
+  "requestFramePermissions": []
+}
