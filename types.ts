@@ -1,4 +1,5 @@
 export enum AppStep {
+  API_KEY = 'API_KEY',
   INPUT = 'INPUT',
   OUTLINE = 'OUTLINE',
   GENERATION = 'GENERATION',
@@ -21,6 +22,7 @@ export interface SlideContent {
   visualPrompt: string; // The instruction for the image model
   generatedImageUrl?: string;
   isGenerating: boolean;
+  error?: string; // Add error field to track generation failures
 }
 
 export interface GenerationConfig {

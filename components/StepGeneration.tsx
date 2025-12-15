@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { SlideContent } from '../types';
-import { RefreshCw, Download, Loader2, Clock, Hourglass } from 'lucide-react';
+import { RefreshCw, Download, Loader2, Clock, Hourglass, AlertCircle } from 'lucide-react';
 import { jsPDF } from 'jspdf'; 
 
 interface Props {
@@ -77,8 +77,26 @@ const WaitingPlaceholder = ({ pageNumber }: { pageNumber: number }) => (
   </div>
 );
 
+const ErrorPlaceholder = ({ pageNumber, error, onRetry }: { pageNumber: number, error: string, onRetry: () => void }) => (
+  <div className="w-full h-full flex flex-col items-center justify-center bg-red-50 border-2 border-dashed border-red-200 rounded-xl p-6 text-center">
+    <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center mb-4 text-red-500">
+      <AlertCircle className="w-6 h-6" />
+    </div>
+    <h3 className="text-red-800 font-medium mb-1">第 {pageNumber} 页生成失败</h3>
+    <p className="text-red-600 text-xs mb-4 max-w-[200px] truncate" title={error}>{error}</p>
+    <button 
+      onClick={onRetry}
+      className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors shadow-sm"
+    >
+      <RefreshCw className="w-3 h-3" />
+      重试
+    </button>
+  </div>
+);
+
 const StepGeneration: React.FC<Props> = ({ slides, onRegenerate }) => {
   const isAllDone = slides.every(s => !s.isGenerating && s.generatedImageUrl);
+  const hasErrors = slides.some(s => s.error);
 
   const handleDownloadPDF = () => {
     const doc = new jsPDF({
@@ -87,14 +105,27 @@ const StepGeneration: React.FC<Props> = ({ slides, onRegenerate }) => {
       format: [1920, 1080] // Standard 16:9 HD resolution
     });
 
-    slides.forEach((slide, index) => {
-      if (index > 0) doc.addPage();
+    let pagesAdded = 0;
+    slides.forEach((slide) => {
       if (slide.generatedImageUrl) {
+        if (pagesAdded > 0) doc.addPage();
         doc.addImage(slide.generatedImageUrl, 'PNG', 0, 0, 1920, 1080);
+        pagesAdded++;
       }
     });
 
+    if (pagesAdded === 0) {
+      alert("没有可下载的幻灯片图片。");
+      return;
+    }
+
     doc.save('gemini-presentation.pdf');
+  };
+
+  const getStatusText = () => {
+    if (isAllDone) return "所有页面已制作完成，请检查并下载。";
+    if (hasErrors) return "部分页面生成失败，请点击“重试”按钮。";
+    return "正在按顺序生成高保真幻灯片...";
   };
 
   return (
@@ -102,15 +133,15 @@ const StepGeneration: React.FC<Props> = ({ slides, onRegenerate }) => {
       <div className="flex justify-between items-center bg-white p-4 rounded-xl shadow-sm border border-slate-200 sticky top-4 z-20">
         <div>
           <h2 className="text-xl font-bold text-slate-800">最终幻灯片</h2>
-          <p className="text-sm text-slate-500">
-            {isAllDone ? "所有页面已制作完成，请检查并下载。" : "正在按顺序生成高保真幻灯片..."}
+          <p className={`text-sm ${hasErrors ? 'text-red-500 font-medium' : 'text-slate-500'}`}>
+            {getStatusText()}
           </p>
         </div>
         <button
           onClick={handleDownloadPDF}
-          disabled={!isAllDone}
+          disabled={!isAllDone && !hasErrors && slides.filter(s => s.generatedImageUrl).length === 0}
           className={`px-6 py-2 rounded-lg font-medium flex items-center gap-2 transition-colors ${
-            isAllDone 
+            (isAllDone || slides.some(s => s.generatedImageUrl))
               ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-600/20' 
               : 'bg-slate-200 text-slate-400 cursor-not-allowed'
           }`}
@@ -126,8 +157,18 @@ const StepGeneration: React.FC<Props> = ({ slides, onRegenerate }) => {
             
             {/* Logic for content display */}
             {(() => {
-              // Case 1: Regenerating (Has image but is generating)
-              if (slide.generatedImageUrl && slide.isGenerating) {
+              // 1. Error State
+              if (slide.error && !slide.isGenerating) {
+                return (
+                  <ErrorPlaceholder 
+                    pageNumber={slide.pageNumber} 
+                    error={slide.error} 
+                    onRetry={() => onRegenerate(slide.id)} 
+                  />
+                );
+              }
+              // 2. Generating with overlay (Regenerating)
+              else if (slide.generatedImageUrl && slide.isGenerating) {
                 return (
                   <>
                     <img 
@@ -141,11 +182,11 @@ const StepGeneration: React.FC<Props> = ({ slides, onRegenerate }) => {
                   </>
                 );
               }
-              // Case 2: Generating (No image, generating)
+              // 3. Generating (First time)
               else if (slide.isGenerating) {
                 return <GeneratingPlaceholder pageNumber={slide.pageNumber} />;
               }
-              // Case 3: Done (Has image, not generating)
+              // 4. Success State
               else if (slide.generatedImageUrl) {
                 return (
                   <>
@@ -179,7 +220,7 @@ const StepGeneration: React.FC<Props> = ({ slides, onRegenerate }) => {
                   </>
                 );
               }
-              // Case 4: Waiting (No image, not generating)
+              // 5. Waiting State
               else {
                 return <WaitingPlaceholder pageNumber={slide.pageNumber} />;
               }
