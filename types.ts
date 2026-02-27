@@ -1,3 +1,4 @@
+
 export enum AppStep {
   API_KEY = 'API_KEY',
   INPUT = 'INPUT',
@@ -19,17 +20,25 @@ export interface SlideContent {
   pageNumber: number;
   title: string;
   bulletPoints: string[];
-  visualPrompt: string; // The instruction for the image model
+  visualPrompt: string; 
   generatedImageUrl?: string;
   isGenerating: boolean;
-  error?: string; // Add error field to track generation failures
+  error?: string;
 }
 
 export interface GenerationConfig {
   sourceText: string;
   slideCount: number;
   style: SlideStyle;
+  userImage?: string; // Base64 encoded user image
   customStylePrompt?: string;
+}
+
+export interface HistoryRecord {
+  id: string;
+  timestamp: number;
+  config: GenerationConfig;
+  slides: SlideContent[];
 }
 
 export interface StyleDefinition {

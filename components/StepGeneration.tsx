@@ -1,25 +1,23 @@
+
 import React, { useState, useEffect } from 'react';
 import { SlideContent } from '../types';
-import { RefreshCw, Download, Loader2, Clock, Hourglass, AlertCircle } from 'lucide-react';
+import { RefreshCw, Download, Loader2, Clock, Hourglass, AlertCircle, Send } from 'lucide-react';
 import { jsPDF } from 'jspdf'; 
 
 interface Props {
   slides: SlideContent[];
-  onRegenerate: (slideId: string) => void;
+  onRegenerate: (slideId: string, refinement?: string) => void;
 }
 
-const GeneratingPlaceholder = ({ pageNumber, isOverlay = false }: { pageNumber: number, isOverlay?: boolean }) => {
+const GeneratingPlaceholder = ({ pageNumber, isOverlay = false, customText }: { pageNumber: number, isOverlay?: boolean, customText?: string }) => {
   const [progress, setProgress] = useState(0);
   
   useEffect(() => {
-    // Estimated time around 12 seconds for high quality generation
     const duration = 12000; 
     const interval = 100;
     const increment = 100 / (duration / interval);
-
     const timer = setInterval(() => {
       setProgress(prev => {
-        // Slow down significantly as we approach 100% to handle network variance
         if (prev >= 90) return prev + (increment * 0.1); 
         if (prev >= 98) return prev;
         return prev + increment;
@@ -32,79 +30,39 @@ const GeneratingPlaceholder = ({ pageNumber, isOverlay = false }: { pageNumber: 
 
   return (
     <div className={`w-full h-full flex flex-col items-center justify-center text-white p-6 relative overflow-hidden ${isOverlay ? 'bg-slate-900/90 backdrop-blur-sm' : 'bg-slate-800'}`}>
-      {!isOverlay && (
-        <div className="absolute inset-0 bg-gradient-to-br from-blue-900/20 to-purple-900/20 animate-pulse"></div>
-      )}
-      
       <div className="relative z-10 flex flex-col items-center w-full max-w-xs">
-        <div className="relative mb-5">
-           <div className="absolute inset-0 bg-blue-500 blur-xl opacity-20 animate-pulse"></div>
-           <Loader2 className="w-12 h-12 text-blue-400 animate-spin relative z-10" />
-        </div>
-        
+        <Loader2 className="w-12 h-12 text-blue-400 animate-spin mb-5" />
         <h3 className="text-xl font-semibold mb-2 text-white tracking-wide">
-          正在生成第 {pageNumber} 页
+          {customText || `正在生成第 ${pageNumber} 页`}
         </h3>
         <p className="text-slate-400 text-sm mb-6 text-center font-light">
-          AI 正在构思布局并绘制视觉细节...
+          Gemini 正在重绘视觉细节...
         </p>
-        
-        {/* Progress Bar */}
-        <div className="w-full h-2 bg-slate-700/50 rounded-full overflow-hidden mb-4 border border-slate-600/30">
-          <div 
-            className="h-full bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-500 transition-all duration-300 ease-linear shadow-[0_0_10px_rgba(59,130,246,0.5)]"
-            style={{ width: `${Math.min(progress, 100)}%` }}
-          />
+        <div className="w-full h-2 bg-slate-700/50 rounded-full overflow-hidden mb-4">
+          <div className="h-full bg-blue-500 transition-all duration-300 ease-linear" style={{ width: `${Math.min(progress, 100)}%` }} />
         </div>
-        
-        {/* Time Estimation */}
-        <div className="flex items-center gap-2 text-xs text-blue-200/80 font-medium bg-white/5 px-4 py-1.5 rounded-full border border-white/10">
+        <div className="flex items-center gap-2 text-xs text-blue-200/80 font-medium">
           <Clock className="w-3.5 h-3.5" />
-          <span>预计剩余: <span className="text-white font-bold">{remainingSeconds}</span> 秒</span>
+          <span>剩余约 {remainingSeconds} 秒</span>
         </div>
       </div>
     </div>
   );
 };
 
-const WaitingPlaceholder = ({ pageNumber }: { pageNumber: number }) => (
-  <div className="w-full h-full flex flex-col items-center justify-center bg-slate-50 border-2 border-dashed border-slate-200 rounded-xl p-6">
-    <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center mb-4">
-      <Hourglass className="w-5 h-5 text-slate-400" />
-    </div>
-    <h3 className="text-slate-500 font-medium mb-1">第 {pageNumber} 页</h3>
-    <p className="text-slate-400 text-sm">等待生成...</p>
-  </div>
-);
-
-const ErrorPlaceholder = ({ pageNumber, error, onRetry }: { pageNumber: number, error: string, onRetry: () => void }) => (
-  <div className="w-full h-full flex flex-col items-center justify-center bg-red-50 border-2 border-dashed border-red-200 rounded-xl p-6 text-center">
-    <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center mb-4 text-red-500">
-      <AlertCircle className="w-6 h-6" />
-    </div>
-    <h3 className="text-red-800 font-medium mb-1">第 {pageNumber} 页生成失败</h3>
-    <p className="text-red-600 text-xs mb-4 max-w-[200px] truncate" title={error}>{error}</p>
-    <button 
-      onClick={onRetry}
-      className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors shadow-sm"
-    >
-      <RefreshCw className="w-3 h-3" />
-      重试
-    </button>
-  </div>
-);
-
 const StepGeneration: React.FC<Props> = ({ slides, onRegenerate }) => {
+  const [refinements, setRefinements] = useState<Record<string, string>>({});
   const isAllDone = slides.every(s => !s.isGenerating && s.generatedImageUrl);
-  const hasErrors = slides.some(s => s.error);
+
+  const handleRefine = (id: string) => {
+    const text = refinements[id];
+    if (!text?.trim()) return;
+    onRegenerate(id, text);
+    setRefinements(prev => ({ ...prev, [id]: '' })); // Clear input
+  };
 
   const handleDownloadPDF = () => {
-    const doc = new jsPDF({
-      orientation: 'landscape',
-      unit: 'px',
-      format: [1920, 1080] // Standard 16:9 HD resolution
-    });
-
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'px', format: [1920, 1080] });
     let pagesAdded = 0;
     slides.forEach((slide) => {
       if (slide.generatedImageUrl) {
@@ -113,119 +71,87 @@ const StepGeneration: React.FC<Props> = ({ slides, onRegenerate }) => {
         pagesAdded++;
       }
     });
-
-    if (pagesAdded === 0) {
-      alert("没有可下载的幻灯片图片。");
-      return;
-    }
-
     doc.save('gemini-presentation.pdf');
-  };
-
-  const getStatusText = () => {
-    if (isAllDone) return "所有页面已制作完成，请检查并下载。";
-    if (hasErrors) return "部分页面生成失败，请点击“重试”按钮。";
-    return "正在按顺序生成高保真幻灯片...";
   };
 
   return (
     <div className="max-w-7xl mx-auto space-y-6 pb-20">
       <div className="flex justify-between items-center bg-white p-4 rounded-xl shadow-sm border border-slate-200 sticky top-4 z-20">
         <div>
-          <h2 className="text-xl font-bold text-slate-800">最终幻灯片</h2>
-          <p className={`text-sm ${hasErrors ? 'text-red-500 font-medium' : 'text-slate-500'}`}>
-            {getStatusText()}
+          <h2 className="text-xl font-bold text-slate-800">最终幻灯片生成</h2>
+          <p className="text-sm text-slate-500">
+            {isAllDone ? "制作完成。如不满意，可在下方输入修改要求重新生成。" : "正在按顺序生成高保真幻灯片..."}
           </p>
         </div>
         <button
           onClick={handleDownloadPDF}
-          disabled={!isAllDone && !hasErrors && slides.filter(s => s.generatedImageUrl).length === 0}
-          className={`px-6 py-2 rounded-lg font-medium flex items-center gap-2 transition-colors ${
-            (isAllDone || slides.some(s => s.generatedImageUrl))
-              ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-600/20' 
-              : 'bg-slate-200 text-slate-400 cursor-not-allowed'
-          }`}
+          className="px-6 py-2 rounded-lg font-medium bg-blue-600 hover:bg-blue-700 text-white shadow-lg flex items-center gap-2"
         >
-          <Download className="w-4 h-4" />
-          下载 PDF 文件
+          <Download className="w-4 h-4" /> 下载 PDF
         </button>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
         {slides.map((slide) => (
-          <div key={slide.id} className="group relative rounded-xl overflow-hidden aspect-video shadow-lg bg-white">
-            
-            {/* Logic for content display */}
-            {(() => {
-              // 1. Error State
-              if (slide.error && !slide.isGenerating) {
-                return (
-                  <ErrorPlaceholder 
-                    pageNumber={slide.pageNumber} 
-                    error={slide.error} 
-                    onRetry={() => onRegenerate(slide.id)} 
-                  />
-                );
-              }
-              // 2. Generating with overlay (Regenerating)
-              else if (slide.generatedImageUrl && slide.isGenerating) {
-                return (
-                  <>
-                    <img 
-                      src={slide.generatedImageUrl} 
-                      alt={slide.title} 
-                      className="w-full h-full object-cover"
-                    />
-                    <div className="absolute inset-0 z-20">
-                      <GeneratingPlaceholder pageNumber={slide.pageNumber} isOverlay={true} />
+          <div key={slide.id} className="space-y-3">
+            <div className="group relative rounded-xl overflow-hidden aspect-video shadow-lg bg-white border border-slate-200">
+              {(() => {
+                if (slide.error && !slide.isGenerating) {
+                  return (
+                    <div className="w-full h-full flex flex-col items-center justify-center bg-red-50 p-6 text-center">
+                      <AlertCircle className="w-8 h-8 text-red-500 mb-2" />
+                      <p className="text-red-800 text-sm font-medium">生成失败</p>
+                      <button onClick={() => onRegenerate(slide.id)} className="mt-4 bg-red-600 text-white px-4 py-2 rounded-lg text-xs">重试</button>
                     </div>
-                  </>
-                );
-              }
-              // 3. Generating (First time)
-              else if (slide.isGenerating) {
-                return <GeneratingPlaceholder pageNumber={slide.pageNumber} />;
-              }
-              // 4. Success State
-              else if (slide.generatedImageUrl) {
-                return (
-                  <>
-                     <img 
-                      src={slide.generatedImageUrl} 
-                      alt={slide.title} 
-                      className="w-full h-full object-cover"
-                    />
-                    {/* Overlay Actions on Hover */}
-                    <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-4 z-20">
-                      <button 
-                        onClick={() => onRegenerate(slide.id)}
-                        className="bg-white/10 hover:bg-white/20 text-white backdrop-blur-md px-4 py-2 rounded-full flex items-center gap-2 text-sm font-medium transition-colors border border-white/20"
-                      >
-                        <RefreshCw className="w-4 h-4" />
-                        重新生成
-                      </button>
-                      <a 
-                        href={slide.generatedImageUrl} 
-                        download={`slide-${slide.pageNumber}.png`}
-                        className="bg-white/10 hover:bg-white/20 text-white backdrop-blur-md px-4 py-2 rounded-full flex items-center gap-2 text-sm font-medium transition-colors border border-white/20"
-                      >
-                        <Download className="w-4 h-4" />
-                        保存图片
-                      </a>
-                    </div>
-                    {/* Page Label */}
-                    <div className="absolute top-4 left-4 bg-black/50 backdrop-blur-md text-white text-xs px-2 py-1 rounded border border-white/10 z-10">
-                      第 {slide.pageNumber} 页
-                    </div>
-                  </>
-                );
-              }
-              // 5. Waiting State
-              else {
-                return <WaitingPlaceholder pageNumber={slide.pageNumber} />;
-              }
-            })()}
+                  );
+                }
+                else if (slide.isGenerating) {
+                  return <GeneratingPlaceholder pageNumber={slide.pageNumber} isOverlay={!!slide.generatedImageUrl} customText={slide.generatedImageUrl ? "正在应用您的修改要求..." : undefined} />;
+                }
+                else if (slide.generatedImageUrl) {
+                  return (
+                    <>
+                      <img src={slide.generatedImageUrl} alt={slide.title} className="w-full h-full object-cover" />
+                      <div className="absolute top-4 left-4 bg-black/50 backdrop-blur-md text-white text-xs px-2 py-1 rounded border border-white/10 z-10">
+                        P{slide.pageNumber}
+                      </div>
+                    </>
+                  );
+                }
+                else {
+                  return <div className="w-full h-full flex items-center justify-center bg-slate-50"><Hourglass className="text-slate-300" /></div>;
+                }
+              })()}
+            </div>
 
+            {/* Refinement Input */}
+            {slide.generatedImageUrl && !slide.isGenerating && (
+              <div className="flex gap-2 animate-fade-in">
+                <div className="relative flex-1">
+                  <input
+                    type="text"
+                    placeholder="输入修改意见 (如: 换成深色背景, 人物放大...)"
+                    className="w-full pl-4 pr-10 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none shadow-sm transition-all"
+                    value={refinements[slide.id] || ''}
+                    onChange={(e) => setRefinements(prev => ({ ...prev, [slide.id]: e.target.value }))}
+                    onKeyDown={(e) => e.key === 'Enter' && handleRefine(slide.id)}
+                  />
+                  <button 
+                    onClick={() => handleRefine(slide.id)}
+                    className="absolute right-2 top-1.5 p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                  >
+                    <Send className="w-4 h-4" />
+                  </button>
+                </div>
+                <button 
+                  onClick={() => onRegenerate(slide.id)}
+                  className="p-2.5 bg-slate-100 text-slate-600 hover:bg-slate-200 rounded-xl transition-colors shadow-sm"
+                  title="完全重新生成"
+                >
+                  <RefreshCw className="w-5 h-5" />
+                </button>
+              </div>
+            )}
           </div>
         ))}
       </div>

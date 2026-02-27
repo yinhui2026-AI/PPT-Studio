@@ -3,35 +3,42 @@ import React, { useState, useEffect } from 'react';
 import StepInput from './components/StepInput';
 import StepOutline from './components/StepOutline';
 import StepGeneration from './components/StepGeneration';
-import { AppStep, GenerationConfig, SlideContent } from './types';
+import HistorySidebar from './components/HistorySidebar';
+import { AppStep, GenerationConfig, SlideContent, HistoryRecord } from './types';
 import { generateOutline, generateSlideImage } from './services/geminiService';
-import { Layers, Key, ExternalLink, Loader2, AlertCircle } from 'lucide-react';
+import { Layers, Loader2 } from 'lucide-react';
+
+const HISTORY_KEY = 'gemini_ppt_history';
 
 const App: React.FC = () => {
   const [currentStep, setCurrentStep] = useState<AppStep>(AppStep.API_KEY);
   const [config, setConfig] = useState<GenerationConfig | null>(null);
   const [slides, setSlides] = useState<SlideContent[]>([]);
+  const [history, setHistory] = useState<HistoryRecord[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isCheckingKey, setIsCheckingKey] = useState(true);
   const [globalError, setGlobalError] = useState<string | null>(null);
 
-  // Check for API Key on mount
   useEffect(() => {
+    // Load history from localStorage
+    const saved = localStorage.getItem(HISTORY_KEY);
+    if (saved) {
+      try {
+        setHistory(JSON.parse(saved));
+      } catch (e) {
+        console.error("Failed to parse history", e);
+      }
+    }
+
     const checkKey = async () => {
       try {
         const aistudio = (window as any).aistudio;
-        if (aistudio) {
-          const hasKey = await aistudio.hasSelectedApiKey();
-          if (hasKey) {
-            setCurrentStep(AppStep.INPUT);
-          } else {
-            setCurrentStep(AppStep.API_KEY);
-          }
-        } else {
+        if (aistudio && await aistudio.hasSelectedApiKey()) {
           setCurrentStep(AppStep.INPUT);
+        } else {
+          setCurrentStep(AppStep.API_KEY);
         }
-      } catch (e) {
-        console.error("Error checking API key:", e);
+      } catch {
         setCurrentStep(AppStep.INPUT);
       } finally {
         setIsCheckingKey(false);
@@ -40,15 +47,57 @@ const App: React.FC = () => {
     checkKey();
   }, []);
 
+  const saveToHistory = (newSlides: SlideContent[], newConfig: GenerationConfig) => {
+    const newRecord: HistoryRecord = {
+      id: `hist-${Date.now()}`,
+      timestamp: Date.now(),
+      config: JSON.parse(JSON.stringify(newConfig)), // Deep clone to preserve state
+      slides: newSlides
+    };
+    
+    setHistory(prev => {
+      // Avoid duplicate recent entries with same content
+      const isDuplicate = prev[0]?.config.sourceText === newConfig.sourceText && 
+                          prev[0]?.config.slideCount === newConfig.slideCount;
+      
+      if (isDuplicate) return prev;
+
+      const updated = [newRecord, ...prev].slice(0, 10);
+      localStorage.setItem(HISTORY_KEY, JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  const deleteHistory = (id: string) => {
+    setHistory(prev => {
+      const updated = prev.filter(r => r.id !== id);
+      localStorage.setItem(HISTORY_KEY, JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  const handleSelectHistory = (record: HistoryRecord) => {
+    // Fully restore the state
+    setConfig(record.config);
+    setSlides(record.slides);
+    
+    // Determine where to resume
+    const hasImages = record.slides.some(s => s.generatedImageUrl);
+    if (hasImages) {
+      setCurrentStep(AppStep.GENERATION);
+    } else {
+      setCurrentStep(AppStep.OUTLINE);
+    }
+    
+    // Scroll to top
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
   const handleSelectKey = async () => {
     const aistudio = (window as any).aistudio;
     if (aistudio) {
-      try {
-        await aistudio.openSelectKey();
-        setCurrentStep(AppStep.INPUT); // Assume success per race condition rules
-      } catch (e) {
-        console.error("Failed to select key:", e);
-      }
+      await aistudio.openSelectKey();
+      setCurrentStep(AppStep.INPUT);
     }
   };
 
@@ -59,14 +108,16 @@ const App: React.FC = () => {
     try {
       const outline = await generateOutline(newConfig.sourceText, newConfig.slideCount, newConfig.style);
       if (outline && outline.length > 0) {
-        setSlides(outline.map(s => ({ ...s, isGenerating: false })));
+        const newSlides = outline.map(s => ({ ...s, isGenerating: false }));
+        setSlides(newSlides);
         setCurrentStep(AppStep.OUTLINE);
+        // Save initial outline and the full config (including source text) to history
+        saveToHistory(newSlides, newConfig);
       } else {
-        throw new Error("生成大纲内容为空，请尝试更换素材或减少生成页数。");
+        throw new Error("大纲内容为空。");
       }
     } catch (error: any) {
-      console.error(error);
-      setGlobalError(error.message || "生成大纲时遇到未知错误");
+      setGlobalError(error.message);
     } finally {
       setIsLoading(false);
     }
@@ -84,131 +135,114 @@ const App: React.FC = () => {
     };
 
     for (const slide of currentSlides) {
+      if (slide.generatedImageUrl) continue; 
       updateSlideState(slide.id, { isGenerating: true, error: undefined });
       try {
-        const imageUrl = await generateSlideImage(slide, cfg.style);
+        const imageUrl = await generateSlideImage(slide, cfg.style, cfg.userImage);
         updateSlideState(slide.id, { isGenerating: false, generatedImageUrl: imageUrl });
       } catch (e: any) {
-        console.error("Failed to generate slide", slide.id, e);
-        updateSlideState(slide.id, { 
-          isGenerating: false, 
-          error: e.message?.includes("403") ? "API 权限不足，请确认 Key 是否支持 Pro 模型" : "生成幻灯片失败，请重试"
-        });
+        updateSlideState(slide.id, { isGenerating: false, error: "生成失败" });
       }
     }
+    
+    // Sync final state (with images) to history
+    setSlides(prev => {
+      const saved = localStorage.getItem(HISTORY_KEY);
+      if (saved) {
+        const hist = JSON.parse(saved);
+        if (hist.length > 0) {
+          hist[0].slides = prev;
+          localStorage.setItem(HISTORY_KEY, JSON.stringify(hist));
+        }
+      }
+      return prev;
+    });
   };
 
   const handleUpdateSlide = (id: string, updates: Partial<SlideContent>) => {
     setSlides(prev => prev.map(s => s.id === id ? { ...s, ...updates } : s));
   };
 
-  const handleRegenerateSlide = async (id: string) => {
+  const handleRegenerateSlide = async (id: string, refinement?: string) => {
     if (!config) return;
     const slide = slides.find(s => s.id === id);
     if (!slide) return;
-
+    
     handleUpdateSlide(id, { isGenerating: true, error: undefined });
     try {
-      const imageUrl = await generateSlideImage(slide, config.style);
+      const imageUrl = await generateSlideImage(slide, config.style, config.userImage, refinement);
       handleUpdateSlide(id, { isGenerating: false, generatedImageUrl: imageUrl });
-    } catch (e: any) {
-      handleUpdateSlide(id, { isGenerating: false, error: "重试失败，请检查网络或 Key 权限" });
+      
+      // Update history sync
+      setSlides(current => {
+        const saved = localStorage.getItem(HISTORY_KEY);
+        if (saved) {
+          const hist = JSON.parse(saved);
+          // Update the first record if it matches current generation session
+          if (hist.length > 0 && hist[0].config.sourceText === config.sourceText) {
+            hist[0].slides = current;
+            localStorage.setItem(HISTORY_KEY, JSON.stringify(hist));
+          }
+        }
+        return current;
+      });
+    } catch {
+      handleUpdateSlide(id, { isGenerating: false, error: "重试失败" });
     }
   };
 
-  if (isCheckingKey) {
-    return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
-      </div>
-    );
-  }
-
-  if (currentStep === AppStep.API_KEY) {
-    return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 font-sans">
-        <div className="max-w-md w-full bg-white rounded-2xl shadow-xl border border-slate-100 p-8 text-center space-y-6">
-          <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-2">
-            <Key className="w-8 h-8" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold text-slate-800 mb-2">需要 API 授权</h1>
-            <p className="text-slate-500 text-sm leading-relaxed">
-              请选择一个关联了 Google Cloud 计费项目的 API 密钥。
-              <br/>推荐使用 Gemini 3 系列以获得最佳效果。
-            </p>
-          </div>
-          <button
-            onClick={handleSelectKey}
-            className="w-full py-3 px-4 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg shadow-lg shadow-blue-600/20 transition-all active:scale-95 flex items-center justify-center gap-2"
-          >
-            选择 API 密钥
-          </button>
-          <div className="pt-4 border-t border-slate-100">
-            <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noopener noreferrer" className="text-xs text-blue-500 hover:text-blue-600 flex items-center justify-center gap-1">
-              了解 API 计费详情 <ExternalLink className="w-3 h-3" />
-            </a>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  if (isCheckingKey) return <div className="min-h-screen flex items-center justify-center"><Loader2 className="animate-spin" /></div>;
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 font-sans">
-      <header className="bg-white border-b border-slate-200 sticky top-0 z-50">
+      <header className="bg-white border-b border-slate-200 sticky top-0 z-50 shadow-sm">
         <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-2 text-blue-600">
-            <Layers className="w-6 h-6" />
+          <div 
+            className="flex items-center gap-2 text-blue-600 cursor-pointer group" 
+            onClick={() => setCurrentStep(AppStep.INPUT)}
+          >
+            <div className="p-1.5 bg-blue-50 rounded-lg group-hover:bg-blue-100 transition-colors">
+              <Layers className="w-6 h-6" />
+            </div>
             <span className="font-bold text-lg tracking-tight">Gemini PPT 工作台</span>
           </div>
-          <div className="hidden md:flex items-center gap-4 text-sm font-medium">
-             <div className={`px-3 py-1 rounded-full ${currentStep === AppStep.INPUT ? 'bg-blue-100 text-blue-700' : 'text-slate-400'}`}>1. 输入素材</div>
-             <div className="w-8 h-px bg-slate-200"></div>
-             <div className={`px-3 py-1 rounded-full ${currentStep === AppStep.OUTLINE ? 'bg-blue-100 text-blue-700' : 'text-slate-400'}`}>2. 审核大纲</div>
-             <div className="w-8 h-px bg-slate-200"></div>
-             <div className={`px-3 py-1 rounded-full ${currentStep === AppStep.GENERATION ? 'bg-blue-100 text-blue-700' : 'text-slate-400'}`}>3. 生成幻灯片</div>
-          </div>
-          <button onClick={handleSelectKey} className="text-xs text-slate-400 hover:text-slate-600 font-medium">切换 Key</button>
+          <button 
+            onClick={handleSelectKey} 
+            className="text-xs font-medium text-slate-400 hover:text-blue-500 transition-colors bg-slate-50 px-3 py-1.5 rounded-full border border-slate-100"
+          >
+            切换 API Key
+          </button>
         </div>
       </header>
-
+      
       {globalError && (
-        <div className="max-w-4xl mx-auto mt-6 px-6">
-          <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-start gap-3 animate-fade-in">
-            <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
-            <div className="flex-1">
-              <h3 className="text-sm font-bold text-red-800">生成失败</h3>
-              <p className="text-xs text-red-600 mt-1 leading-relaxed">{globalError}</p>
-              <button 
-                onClick={() => setGlobalError(null)} 
-                className="mt-2 text-xs font-bold text-red-700 hover:underline"
-              >
-                关闭提示并重试
-              </button>
-            </div>
+        <div className="max-w-4xl mx-auto mt-4 px-6">
+          <div className="bg-red-50 p-4 rounded-xl text-red-800 text-sm border border-red-100 flex items-start gap-3">
+             <div className="bg-red-200 p-1 rounded-full mt-0.5">
+               <Loader2 className="w-3 h-3 text-red-700" />
+             </div>
+             {globalError}
           </div>
         </div>
       )}
 
       <main className="p-6">
         {currentStep === AppStep.INPUT && (
-          <StepInput onNext={handleConfigSubmit} isLoading={isLoading} />
+          <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-4 gap-8">
+            <div className="lg:col-span-3">
+              <StepInput onNext={handleConfigSubmit} isLoading={isLoading} />
+            </div>
+            <div className="lg:col-span-1">
+              <HistorySidebar 
+                records={history} 
+                onSelect={handleSelectHistory} 
+                onDelete={deleteHistory}
+              />
+            </div>
+          </div>
         )}
-        {currentStep === AppStep.OUTLINE && (
-          <StepOutline 
-            slides={slides} 
-            onUpdateSlide={handleUpdateSlide} 
-            onNext={handleOutlineConfirm}
-            isLoading={isLoading}
-          />
-        )}
-        {currentStep === AppStep.GENERATION && (
-          <StepGeneration 
-            slides={slides}
-            onRegenerate={handleRegenerateSlide}
-          />
-        )}
+        {currentStep === AppStep.OUTLINE && <StepOutline slides={slides} onUpdateSlide={handleUpdateSlide} onNext={handleOutlineConfirm} isLoading={isLoading} />}
+        {currentStep === AppStep.GENERATION && <StepGeneration slides={slides} onRegenerate={handleRegenerateSlide} />}
       </main>
     </div>
   );
