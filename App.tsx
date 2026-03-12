@@ -19,6 +19,8 @@ const App: React.FC = () => {
   const [isCheckingKey, setIsCheckingKey] = useState(true);
   const [globalError, setGlobalError] = useState<string | null>(null);
 
+  const [customApiKey, setCustomApiKey] = useState('');
+
   useEffect(() => {
     // Load history from localStorage
     const saved = localStorage.getItem(HISTORY_KEY);
@@ -30,22 +32,42 @@ const App: React.FC = () => {
       }
     }
 
+    const savedKey = localStorage.getItem('custom_gemini_api_key');
+    if (savedKey) {
+      setCustomApiKey(savedKey);
+    }
+
     const checkKey = async () => {
       try {
         const aistudio = (window as any).aistudio;
         if (aistudio && await aistudio.hasSelectedApiKey()) {
           setCurrentStep(AppStep.INPUT);
+        } else if (savedKey) {
+          setCurrentStep(AppStep.INPUT);
         } else {
           setCurrentStep(AppStep.API_KEY);
         }
       } catch {
-        setCurrentStep(AppStep.INPUT);
+        if (savedKey) {
+          setCurrentStep(AppStep.INPUT);
+        } else {
+          setCurrentStep(AppStep.API_KEY);
+        }
       } finally {
         setIsCheckingKey(false);
       }
     };
     checkKey();
   }, []);
+
+  const handleSaveCustomKey = () => {
+    if (customApiKey.trim()) {
+      localStorage.setItem('custom_gemini_api_key', customApiKey.trim());
+      setCurrentStep(AppStep.INPUT);
+    } else {
+      alert("请输入有效的 API Key");
+    }
+  };
 
   const saveToHistory = (newSlides: SlideContent[], newConfig: GenerationConfig) => {
     const newRecord: HistoryRecord = {
@@ -97,7 +119,13 @@ const App: React.FC = () => {
     const aistudio = (window as any).aistudio;
     if (aistudio) {
       await aistudio.openSelectKey();
-      setCurrentStep(AppStep.INPUT);
+      if (currentStep === AppStep.API_KEY) {
+        setCurrentStep(AppStep.INPUT);
+      }
+    } else {
+      localStorage.removeItem('custom_gemini_api_key');
+      setCustomApiKey('');
+      setCurrentStep(AppStep.API_KEY);
     }
   };
 
@@ -117,7 +145,11 @@ const App: React.FC = () => {
         throw new Error("大纲内容为空。");
       }
     } catch (error: any) {
-      setGlobalError(error.message);
+      if (error.message?.includes("Requested entity was not found.")) {
+        handleSelectKey();
+      } else {
+        setGlobalError(error.message);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -141,6 +173,10 @@ const App: React.FC = () => {
         const imageUrl = await generateSlideImage(slide, cfg.style, cfg.userImage);
         updateSlideState(slide.id, { isGenerating: false, generatedImageUrl: imageUrl });
       } catch (e: any) {
+        if (e.message?.includes("Requested entity was not found.")) {
+          handleSelectKey();
+          return; // Stop generating further slides
+        }
         updateSlideState(slide.id, { isGenerating: false, error: "生成失败" });
       }
     }
@@ -186,8 +222,12 @@ const App: React.FC = () => {
         }
         return current;
       });
-    } catch {
-      handleUpdateSlide(id, { isGenerating: false, error: "重试失败" });
+    } catch (e: any) {
+      if (e.message?.includes("Requested entity was not found.")) {
+        handleSelectKey();
+      } else {
+        handleUpdateSlide(id, { isGenerating: false, error: "重试失败" });
+      }
     }
   };
 
@@ -227,6 +267,50 @@ const App: React.FC = () => {
       )}
 
       <main className="p-6">
+        {currentStep === AppStep.API_KEY && (
+          <div className="max-w-md mx-auto mt-20 text-center">
+            <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-200">
+              <div className="w-16 h-16 bg-blue-50 rounded-full flex items-center justify-center mx-auto mb-6">
+                <Layers className="w-8 h-8 text-blue-600" />
+              </div>
+              <h2 className="text-2xl font-bold text-slate-900 mb-2">欢迎使用 Gemini PPT 工作台</h2>
+              <p className="text-slate-500 mb-8">
+                本项目使用了高级图像生成模型，需要您选择一个已关联付费项目的 API Key 才能继续使用。
+              </p>
+              
+              {(window as any).aistudio ? (
+                <button
+                  onClick={handleSelectKey}
+                  className="w-full bg-blue-600 text-white font-medium py-3 px-4 rounded-xl hover:bg-blue-700 transition-colors mb-4"
+                >
+                  选择 API Key
+                </button>
+              ) : (
+                <div className="space-y-4 mb-4">
+                  <input
+                    type="password"
+                    placeholder="请输入您的 Gemini API Key"
+                    value={customApiKey}
+                    onChange={(e) => setCustomApiKey(e.target.value)}
+                    className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                  />
+                  <button
+                    onClick={handleSaveCustomKey}
+                    className="w-full bg-blue-600 text-white font-medium py-3 px-4 rounded-xl hover:bg-blue-700 transition-colors"
+                  >
+                    保存并继续
+                  </button>
+                </div>
+              )}
+
+              <p className="mt-4 text-xs text-slate-400">
+                <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noopener noreferrer" className="underline hover:text-slate-600">
+                  了解如何开启付费项目
+                </a>
+              </p>
+            </div>
+          </div>
+        )}
         {currentStep === AppStep.INPUT && (
           <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-4 gap-8">
             <div className="lg:col-span-3">

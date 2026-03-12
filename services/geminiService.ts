@@ -4,8 +4,9 @@ import { SlideContent, SlideStyle } from '../types';
 import { STYLES } from '../constants';
 
 const getClient = () => {
-  const apiKey = process.env.API_KEY;
-  if (!apiKey) throw new Error("API Key not found. Please select an API Key first.");
+  const customKey = localStorage.getItem('custom_gemini_api_key');
+  const apiKey = customKey || process.env.API_KEY;
+  if (!apiKey) throw new Error("API Key not found. Please select or input an API Key first.");
   return new GoogleGenAI({ apiKey });
 };
 
@@ -62,14 +63,14 @@ export const generateOutline = async (
   };
 
   try {
-    const rawData = await callModel('gemini-3-pro-preview', {
+    const rawData = await callModel('gemini-3.1-pro-preview', {
       maxOutputTokens: 16384,
       thinkingConfig: { thinkingBudget: 8192 } 
     });
     return processRawData(rawData);
   } catch (err) {
     try {
-      const rawData = await callModel('gemini-3-pro-preview', { maxOutputTokens: 12000 });
+      const rawData = await callModel('gemini-3.1-pro-preview', { maxOutputTokens: 12000 });
       return processRawData(rawData);
     } catch {
       const rawData = await callModel('gemini-3-flash-preview', { maxOutputTokens: 12000 });
@@ -126,7 +127,7 @@ export const generateSlideImage = async (
 
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-3-pro-image-preview',
+      model: 'gemini-3.1-flash-image-preview',
       contents: { parts },
       config: {
         imageConfig: { aspectRatio: "16:9", imageSize: "1K" }
