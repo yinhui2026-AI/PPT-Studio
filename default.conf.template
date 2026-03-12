@@ -12,7 +12,14 @@ server {
         try_files $uri $uri/ /index.html;
     }
 
-    # Optional: Cache static assets
+    # Ensure static assets can be found correctly
+    location /assets/ {
+        alias /usr/share/nginx/html/assets/;
+        expires 1y;
+        add_header Cache-Control "public";
+    }
+
+    # Optional: Cache other static assets
     location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
         root /usr/share/nginx/html;
         expires 1y;
