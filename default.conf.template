@@ -1,0 +1,21 @@
+server {
+    # Listen on the port specified by Cloud Run
+    listen ${PORT};
+    server_name localhost;
+
+    # Serve static files
+    location / {
+        root /usr/share/nginx/html;
+        index index.html index.htm;
+        
+        # SPA routing: redirect all requests to index.html if file not found
+        try_files $uri $uri/ /index.html;
+    }
+
+    # Optional: Cache static assets
+    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
+        root /usr/share/nginx/html;
+        expires 1y;
+        add_header Cache-Control "public, max-age=31536000, immutable";
+    }
+}
