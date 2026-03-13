@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { HistoryRecord } from '../types';
-import { Clock, ChevronRight, Trash2, Calendar, FileText, CheckCircle2, Circle } from 'lucide-react';
+import { Clock, ChevronRight, Trash2, Calendar, FileText, CheckCircle2, Circle, Download } from 'lucide-react';
 
 interface Props {
   records: HistoryRecord[];
@@ -11,6 +11,11 @@ interface Props {
 
 const HistorySidebar: React.FC<Props> = ({ records, onSelect, onDelete }) => {
   if (records.length === 0) return null;
+
+  const handleDownload = (e: React.MouseEvent, filename: string) => {
+    e.stopPropagation();
+    window.open(`/api/download-ppt/${filename}`, '_blank');
+  };
 
   return (
     <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden sticky top-20">
@@ -35,6 +40,15 @@ const HistorySidebar: React.FC<Props> = ({ records, onSelect, onDelete }) => {
                   {new Date(record.timestamp).toLocaleString('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                 </span>
                 <div className="flex items-center gap-1">
+                  {record.pptFilename && (
+                    <button
+                      onClick={(e) => handleDownload(e, record.pptFilename!)}
+                      className="p-1 hover:text-blue-600 text-slate-400 transition-colors"
+                      title="下载 PPT"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                    </button>
+                  )}
                   {isComplete ? (
                     <CheckCircle2 className="w-3 h-3 text-green-500" title="已完成生成" />
                   ) : (

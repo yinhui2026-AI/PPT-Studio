@@ -11,12 +11,14 @@
     "lint": "tsc --noEmit"
   },
   "dependencies": {
+    "@google-cloud/storage": "^7.15.0",
     "@google/genai": "^1.33.0",
     "express": "^4.19.2",
     "jspdf": "^3.0.4",
     "lucide-react": "^0.561.0",
     "mammoth": "1.8.0",
     "pdfjs-dist": "4.0.379",
+    "pptxgenjs": "^3.12.0",
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
     "tsx": "^4.21.0",

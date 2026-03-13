@@ -2,6 +2,8 @@ import express from "express";
 import path from "path";
 import { fileURLToPath } from "url";
 import { GoogleGenAI, Type } from "@google/genai";
+import PptxGenJS from "pptxgenjs";
+import { Storage } from "@google-cloud/storage";
 
 console.log("Server script starting...");
 
@@ -14,6 +16,9 @@ async function startServer() {
   const PORT = parseInt(process.env.PORT || "8080", 10);
 
   app.use(express.json({ limit: '50mb' }));
+
+  const storage = new Storage();
+  const BUCKET_NAME = "pptgen0313";
 
   // Gemini API Setup
   const getAiClient = (req: express.Request) => {
@@ -119,6 +124,118 @@ async function startServer() {
       res.json({ imageUrl });
     } catch (error: any) {
       console.error("Image generation error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/save-ppt", async (req, res) => {
+    try {
+      const { outline, title } = req.body;
+      if (!outline || !Array.isArray(outline)) {
+        return res.status(400).json({ error: "Invalid outline data" });
+      }
+
+      const pptx = new PptxGenJS();
+      pptx.layout = "LAYOUT_16x9";
+
+      // Add slides
+      outline.forEach((item: any) => {
+        const slide = pptx.addSlide();
+        slide.addText(item.title || "Untitled Slide", {
+          x: 0.5,
+          y: 0.5,
+          w: "90%",
+          fontSize: 24,
+          bold: true,
+          color: "363636",
+        });
+
+        if (item.bulletPoints && Array.isArray(item.bulletPoints)) {
+          slide.addText(item.bulletPoints.map((p: string) => `• ${p}`).join("\n"), {
+            x: 0.5,
+            y: 1.2,
+            w: "90%",
+            fontSize: 14,
+            color: "666666",
+          });
+        }
+      });
+
+      const buffer = await pptx.write({ outputType: "nodebuffer" }) as Buffer;
+      const timestamp = new Date().getTime();
+      const safeTitle = (title || "presentation").replace(/[^a-z0-9]/gi, "_").toLowerCase();
+      const filename = `ppt_${timestamp}_${safeTitle}.pptx`;
+
+      const bucket = storage.bucket(BUCKET_NAME);
+      const file = bucket.file(filename);
+
+      await file.save(buffer, {
+        metadata: {
+          contentType: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        },
+      });
+
+      // Cleanup: keep only last 10
+      const [files] = await bucket.getFiles();
+      const sortedFiles = files.sort((a, b) => {
+        const timeA = parseInt(a.name.split("_")[1]) || 0;
+        const timeB = parseInt(b.name.split("_")[1]) || 0;
+        return timeB - timeA;
+      });
+
+      if (sortedFiles.length > 10) {
+        const filesToDelete = sortedFiles.slice(10);
+        await Promise.all(filesToDelete.map(f => f.delete()));
+      }
+
+      res.json({ success: true, filename });
+    } catch (error: any) {
+      console.error("PPT save error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/list-history", async (req, res) => {
+    try {
+      const bucket = storage.bucket(BUCKET_NAME);
+      const [files] = await bucket.getFiles();
+      
+      const history = files
+        .map(f => ({
+          name: f.name,
+          created: parseInt(f.name.split("_")[1]) || 0,
+          url: `/api/download-ppt/${f.name}`
+        }))
+        .sort((a, b) => b.created - a.created)
+        .slice(0, 10);
+
+      res.json(history);
+    } catch (error: any) {
+      console.error("List history error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/download-ppt/:filename", async (req, res) => {
+    try {
+      const { filename } = req.params;
+      const bucket = storage.bucket(BUCKET_NAME);
+      const file = bucket.file(filename);
+
+      const [exists] = await file.exists();
+      if (!exists) {
+        return res.status(404).json({ error: "File not found" });
+      }
+
+      const [url] = await file.getSignedUrl({
+        version: "v4",
+        action: "read",
+        expires: Date.now() + 15 * 60 * 1000, // 15 minutes
+      });
+
+      res.redirect(url);
+    } catch (error: any) {
+      console.error("Download error:", error);
       res.status(500).json({ error: error.message });
     }
   });

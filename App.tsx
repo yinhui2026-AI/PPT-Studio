@@ -17,6 +17,7 @@ const App: React.FC = () => {
   const [history, setHistory] = useState<HistoryRecord[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isCheckingKey, setIsCheckingKey] = useState(false);
+  const [pptFilename, setPptFilename] = useState<string | null>(null);
   const [globalError, setGlobalError] = useState<string | null>(null);
   const [showHistory, setShowHistory] = useState(false);
   const [isKeyPopoverOpen, setIsKeyPopoverOpen] = useState(false);
@@ -61,12 +62,13 @@ const App: React.FC = () => {
     }
   };
 
-  const saveToHistory = (newSlides: SlideContent[], newConfig: GenerationConfig) => {
+  const saveToHistory = (newSlides: SlideContent[], newConfig: GenerationConfig, pptFilename?: string) => {
     const newRecord: HistoryRecord = {
       id: `hist-${Date.now()}`,
       timestamp: Date.now(),
       config: JSON.parse(JSON.stringify(newConfig)), // Deep clone to preserve state
-      slides: newSlides
+      slides: newSlides,
+      pptFilename
     };
     
     setHistory(prev => {
@@ -146,6 +148,34 @@ const App: React.FC = () => {
 
   const handleOutlineConfirm = async () => {
     if (!config) return;
+    
+    // Save PPT to server early
+    try {
+      const response = await fetch('/api/save-ppt', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          outline: slides, 
+          title: slides[0]?.title || "presentation" 
+        })
+      });
+      const data = await response.json();
+      if (data.success) {
+        setPptFilename(data.filename);
+        // Update history with filename
+        setHistory(prev => {
+          const updated = [...prev];
+          if (updated.length > 0) {
+            updated[0].pptFilename = data.filename;
+            safeSaveToLocalStorage(HISTORY_KEY, updated);
+          }
+          return updated;
+        });
+      }
+    } catch (e) {
+      console.error("Failed to save PPT to server", e);
+    }
+
     setCurrentStep(AppStep.GENERATION);
     generateAllSlides(slides, config);
   };
@@ -279,7 +309,7 @@ const App: React.FC = () => {
           <div className={`${showHistory ? 'lg:col-span-3' : 'lg:col-span-4'} transition-all duration-300`}>
             {currentStep === AppStep.INPUT && <StepInput onNext={handleConfigSubmit} isLoading={isLoading} />}
             {currentStep === AppStep.OUTLINE && <StepOutline slides={slides} onUpdateSlide={handleUpdateSlide} onNext={handleOutlineConfirm} isLoading={isLoading} />}
-            {currentStep === AppStep.GENERATION && <StepGeneration slides={slides} onRegenerate={handleRegenerateSlide} />}
+            {currentStep === AppStep.GENERATION && <StepGeneration slides={slides} onRegenerate={handleRegenerateSlide} pptFilename={pptFilename} />}
           </div>
           {showHistory && (
             <div className="lg:col-span-1 animate-in slide-in-from-right duration-300">

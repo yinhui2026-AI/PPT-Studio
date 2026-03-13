@@ -39,6 +39,7 @@ export interface HistoryRecord {
   timestamp: number;
   config: GenerationConfig;
   slides: SlideContent[];
+  pptFilename?: string;
 }
 
 export interface StyleDefinition {

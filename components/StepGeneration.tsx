@@ -7,6 +7,7 @@ import { jsPDF } from 'jspdf';
 interface Props {
   slides: SlideContent[];
   onRegenerate: (slideId: string, refinement?: string) => void;
+  pptFilename?: string | null;
 }
 
 const GeneratingPlaceholder = ({ pageNumber, isOverlay = false, customText }: { pageNumber: number, isOverlay?: boolean, customText?: string }) => {
@@ -50,7 +51,7 @@ const GeneratingPlaceholder = ({ pageNumber, isOverlay = false, customText }: { 
   );
 };
 
-const StepGeneration: React.FC<Props> = ({ slides, onRegenerate }) => {
+const StepGeneration: React.FC<Props> = ({ slides, onRegenerate, pptFilename }) => {
   const [refinements, setRefinements] = useState<Record<string, string>>({});
   const isAllDone = slides.every(s => !s.isGenerating && s.generatedImageUrl);
 
@@ -74,6 +75,12 @@ const StepGeneration: React.FC<Props> = ({ slides, onRegenerate }) => {
     doc.save('gemini-presentation.pdf');
   };
 
+  const handleDownloadPPT = () => {
+    if (pptFilename) {
+      window.open(`/api/download-ppt/${pptFilename}`, '_blank');
+    }
+  };
+
   return (
     <div className="max-w-7xl mx-auto space-y-6 pb-20">
       <div className="flex justify-between items-center bg-white p-4 rounded-xl shadow-sm border border-slate-200 sticky top-4 z-20">
@@ -83,12 +90,22 @@ const StepGeneration: React.FC<Props> = ({ slides, onRegenerate }) => {
             {isAllDone ? "制作完成。如不满意，可在下方输入修改要求重新生成。" : "正在按顺序生成高保真幻灯片..."}
           </p>
         </div>
-        <button
-          onClick={handleDownloadPDF}
-          className="px-6 py-2 rounded-lg font-medium bg-blue-600 hover:bg-blue-700 text-white shadow-lg flex items-center gap-2"
-        >
-          <Download className="w-4 h-4" /> 下载 PDF
-        </button>
+        <div className="flex gap-3">
+          {pptFilename && (
+            <button
+              onClick={handleDownloadPPT}
+              className="px-6 py-2 rounded-lg font-medium bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg flex items-center gap-2 transition-colors"
+            >
+              <Download className="w-4 h-4" /> 下载 PPT
+            </button>
+          )}
+          <button
+            onClick={handleDownloadPDF}
+            className="px-6 py-2 rounded-lg font-medium bg-blue-600 hover:bg-blue-700 text-white shadow-lg flex items-center gap-2 transition-colors"
+          >
+            <Download className="w-4 h-4" /> 下载 PDF
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
