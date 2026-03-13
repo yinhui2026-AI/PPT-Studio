@@ -30,9 +30,7 @@ COPY --from=builder /app/tsconfig.json ./
 RUN npm install -g tsx
 
 # Cloud Run sets the PORT environment variable (default 8080)
-ENV PORT=3000
 ENV NODE_ENV=production
-EXPOSE 3000
 
 # Start the server
 CMD ["tsx", "server.ts"]
