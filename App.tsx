@@ -63,11 +63,12 @@ const App: React.FC = () => {
   };
 
   const saveToHistory = (newSlides: SlideContent[], newConfig: GenerationConfig, pptFilename?: string) => {
+    const lightweightSlides = newSlides.map(s => ({ ...s, generatedImageUrl: undefined }));
     const newRecord: HistoryRecord = {
       id: `hist-${Date.now()}`,
       timestamp: Date.now(),
       config: JSON.parse(JSON.stringify(newConfig)), // Deep clone to preserve state
-      slides: newSlides,
+      slides: lightweightSlides,
       pptFilename
     };
     
@@ -96,14 +97,9 @@ const App: React.FC = () => {
     // Fully restore the state
     setConfig(record.config);
     setSlides(record.slides);
+    setPptFilename(record.pptFilename || null);
     
-    // Determine where to resume
-    const hasImages = record.slides.some(s => s.generatedImageUrl);
-    if (hasImages) {
-      setCurrentStep(AppStep.GENERATION);
-    } else {
-      setCurrentStep(AppStep.OUTLINE);
-    }
+    setCurrentStep(AppStep.OUTLINE);
     
     // Scroll to top
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -211,7 +207,7 @@ const App: React.FC = () => {
         try {
           const hist = JSON.parse(saved);
           if (hist.length > 0) {
-            hist[0].slides = prev;
+            hist[0].slides = prev.map(s => ({ ...s, generatedImageUrl: undefined }));
             safeSaveToLocalStorage(HISTORY_KEY, hist);
           }
         } catch (e) {
@@ -244,7 +240,7 @@ const App: React.FC = () => {
             const hist = JSON.parse(saved);
             // Update the first record if it matches current generation session
             if (hist.length > 0 && hist[0].config.sourceText === config.sourceText) {
-              hist[0].slides = current;
+              hist[0].slides = current.map(s => ({ ...s, generatedImageUrl: undefined }));
               safeSaveToLocalStorage(HISTORY_KEY, hist);
             }
           } catch (e) {

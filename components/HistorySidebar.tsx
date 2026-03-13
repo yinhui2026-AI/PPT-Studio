@@ -27,7 +27,7 @@ const HistorySidebar: React.FC<Props> = ({ records, onSelect, onDelete }) => {
       </div>
       <div className="divide-y divide-slate-100 max-h-[calc(100vh-200px)] overflow-y-auto">
         {records.map((record) => {
-          const isComplete = record.slides.some(s => s.generatedImageUrl);
+          const isComplete = !!record.pptFilename;
           return (
             <div 
               key={record.id}

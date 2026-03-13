@@ -227,16 +227,22 @@ async function startServer() {
         return res.status(404).json({ error: "File not found" });
       }
 
-      const [url] = await file.getSignedUrl({
-        version: "v4",
-        action: "read",
-        expires: Date.now() + 15 * 60 * 1000, // 15 minutes
-      });
-
-      res.redirect(url);
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.presentationml.presentation');
+      
+      file.createReadStream()
+        .on('error', (err) => {
+          console.error("Stream error:", err);
+          if (!res.headersSent) {
+            res.status(500).json({ error: err.message });
+          }
+        })
+        .pipe(res);
     } catch (error: any) {
       console.error("Download error:", error);
-      res.status(500).json({ error: error.message });
+      if (!res.headersSent) {
+        res.status(500).json({ error: error.message });
+      }
     }
   });
 
