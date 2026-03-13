@@ -15,7 +15,7 @@ async function startServer() {
   const app = express();
   const PORT = parseInt(process.env.PORT || "8080", 10);
 
-  app.use(express.json({ limit: '50mb' }));
+  app.use(express.json({ limit: '100mb' }));
 
   const storage = new Storage();
   const BUCKET_NAME = "pptgen0313";
@@ -141,23 +141,28 @@ async function startServer() {
       // Add slides
       outline.forEach((item: any) => {
         const slide = pptx.addSlide();
-        slide.addText(item.title || "Untitled Slide", {
-          x: 0.5,
-          y: 0.5,
-          w: "90%",
-          fontSize: 24,
-          bold: true,
-          color: "363636",
-        });
-
-        if (item.bulletPoints && Array.isArray(item.bulletPoints)) {
-          slide.addText(item.bulletPoints.map((p: string) => `• ${p}`).join("\n"), {
+        
+        if (item.generatedImageUrl) {
+          slide.addImage({ data: item.generatedImageUrl, x: 0, y: 0, w: "100%", h: "100%" });
+        } else {
+          slide.addText(item.title || "Untitled Slide", {
             x: 0.5,
-            y: 1.2,
+            y: 0.5,
             w: "90%",
-            fontSize: 14,
-            color: "666666",
+            fontSize: 24,
+            bold: true,
+            color: "363636",
           });
+
+          if (item.bulletPoints && Array.isArray(item.bulletPoints)) {
+            slide.addText(item.bulletPoints.map((p: string) => `• ${p}`).join("\n"), {
+              x: 0.5,
+              y: 1.2,
+              w: "90%",
+              fontSize: 14,
+              color: "666666",
+            });
+          }
         }
       });
 

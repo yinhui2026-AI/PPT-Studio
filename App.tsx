@@ -116,6 +116,33 @@ const App: React.FC = () => {
 
   const activeKey = customApiKey || (process.env.API_KEY as string) || "";
 
+  const syncPptToServer = async (currentSlides: SlideContent[]) => {
+    try {
+      const response = await fetch('/api/save-ppt', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          outline: currentSlides, 
+          title: currentSlides[0]?.title || "presentation" 
+        })
+      });
+      const data = await response.json();
+      if (data.success) {
+        setPptFilename(data.filename);
+        setHistory(prev => {
+          const updated = [...prev];
+          if (updated.length > 0) {
+            updated[0].pptFilename = data.filename;
+            safeSaveToLocalStorage(HISTORY_KEY, updated);
+          }
+          return updated;
+        });
+      }
+    } catch (e) {
+      console.error("Failed to save PPT to server", e);
+    }
+  };
+
   const handleConfigSubmit = async (newConfig: GenerationConfig) => {
     setGlobalError(null);
     setConfig(newConfig);
@@ -144,41 +171,15 @@ const App: React.FC = () => {
 
   const handleOutlineConfirm = async () => {
     if (!config) return;
-    
-    // Save PPT to server early
-    try {
-      const response = await fetch('/api/save-ppt', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          outline: slides, 
-          title: slides[0]?.title || "presentation" 
-        })
-      });
-      const data = await response.json();
-      if (data.success) {
-        setPptFilename(data.filename);
-        // Update history with filename
-        setHistory(prev => {
-          const updated = [...prev];
-          if (updated.length > 0) {
-            updated[0].pptFilename = data.filename;
-            safeSaveToLocalStorage(HISTORY_KEY, updated);
-          }
-          return updated;
-        });
-      }
-    } catch (e) {
-      console.error("Failed to save PPT to server", e);
-    }
-
     setCurrentStep(AppStep.GENERATION);
     generateAllSlides(slides, config);
   };
 
   const generateAllSlides = async (currentSlides: SlideContent[], cfg: GenerationConfig) => {
+    let finalSlides = [...currentSlides];
     const updateSlideState = (id: string, updates: Partial<SlideContent>) => {
-      setSlides(prev => prev.map(s => s.id === id ? { ...s, ...updates } : s));
+      finalSlides = finalSlides.map(s => s.id === id ? { ...s, ...updates } : s);
+      setSlides(finalSlides);
     };
 
     for (const slide of currentSlides) {
@@ -216,6 +217,9 @@ const App: React.FC = () => {
       }
       return prev;
     });
+
+    // Save PPT to server with images
+    await syncPptToServer(finalSlides);
   };
 
   const handleUpdateSlide = (id: string, updates: Partial<SlideContent>) => {
@@ -232,23 +236,28 @@ const App: React.FC = () => {
       const imageUrl = await generateSlideImage(slide, config.style, config.userImage, refinement);
       handleUpdateSlide(id, { isGenerating: false, generatedImageUrl: imageUrl });
       
+      let updatedSlides: SlideContent[] = [];
       // Update history sync
       setSlides(current => {
+        updatedSlides = current.map(s => s.id === id ? { ...s, isGenerating: false, generatedImageUrl: imageUrl } : s);
         const saved = localStorage.getItem(HISTORY_KEY);
         if (saved) {
           try {
             const hist = JSON.parse(saved);
             // Update the first record if it matches current generation session
             if (hist.length > 0 && hist[0].config.sourceText === config.sourceText) {
-              hist[0].slides = current.map(s => ({ ...s, generatedImageUrl: undefined }));
+              hist[0].slides = updatedSlides.map(s => ({ ...s, generatedImageUrl: undefined }));
               safeSaveToLocalStorage(HISTORY_KEY, hist);
             }
           } catch (e) {
             console.error("Failed to sync regenerated slide to history", e);
           }
         }
-        return current;
+        return updatedSlides;
       });
+
+      // Save updated PPT to server
+      await syncPptToServer(updatedSlides);
     } catch (e: any) {
       if (e.message?.includes("Requested entity was not found.")) {
         handleSelectKey();
