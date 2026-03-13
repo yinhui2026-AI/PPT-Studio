@@ -11,20 +11,28 @@ RUN npm install
 COPY . .
 RUN npm run build
 
-# Stage 2: Serve the application using Nginx
-FROM nginx:alpine
+# Stage 2: Run the Express server
+FROM node:22-alpine
 
-# Copy the built assets from the builder stage
-COPY --from=builder /app/dist /usr/share/nginx/html
+WORKDIR /app
 
-# Copy the Nginx configuration template
-# The official Nginx image automatically substitutes environment variables 
-# in this template and outputs it to /etc/nginx/conf.d/default.conf on startup.
-COPY default.conf.template /etc/nginx/templates/default.conf.template
+# Copy package files and install production dependencies
+COPY package*.json ./
+RUN npm install --production
+
+# Copy built assets from builder
+COPY --from=builder /app/dist ./dist
+# Copy server source and other necessary files
+COPY --from=builder /app/server.ts ./
+COPY --from=builder /app/tsconfig.json ./
+
+# Install tsx globally or use it from node_modules
+RUN npm install -g tsx
 
 # Cloud Run sets the PORT environment variable (default 8080)
-ENV PORT=8080
-EXPOSE 8080
+ENV PORT=3000
+ENV NODE_ENV=production
+EXPOSE 3000
 
-# Start Nginx
-CMD ["nginx", "-g", "daemon off;"]
+# Start the server
+CMD ["tsx", "server.ts"]

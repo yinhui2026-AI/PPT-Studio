@@ -50,6 +50,17 @@ const App: React.FC = () => {
     }
   };
 
+  const safeSaveToLocalStorage = (key: string, data: any) => {
+    try {
+      localStorage.setItem(key, JSON.stringify(data));
+    } catch (e) {
+      console.error("Failed to save to localStorage", e);
+      if (e instanceof Error && e.name === 'QuotaExceededError') {
+        setGlobalError("本地存储空间不足，部分历史记录可能未保存。建议清理任务历史。");
+      }
+    }
+  };
+
   const saveToHistory = (newSlides: SlideContent[], newConfig: GenerationConfig) => {
     const newRecord: HistoryRecord = {
       id: `hist-${Date.now()}`,
@@ -66,7 +77,7 @@ const App: React.FC = () => {
       if (isDuplicate) return prev;
 
       const updated = [newRecord, ...prev].slice(0, 10);
-      localStorage.setItem(HISTORY_KEY, JSON.stringify(updated));
+      safeSaveToLocalStorage(HISTORY_KEY, updated);
       return updated;
     });
   };
@@ -74,7 +85,7 @@ const App: React.FC = () => {
   const deleteHistory = (id: string) => {
     setHistory(prev => {
       const updated = prev.filter(r => r.id !== id);
-      localStorage.setItem(HISTORY_KEY, JSON.stringify(updated));
+      safeSaveToLocalStorage(HISTORY_KEY, updated);
       return updated;
     });
   };
@@ -167,10 +178,14 @@ const App: React.FC = () => {
     setSlides(prev => {
       const saved = localStorage.getItem(HISTORY_KEY);
       if (saved) {
-        const hist = JSON.parse(saved);
-        if (hist.length > 0) {
-          hist[0].slides = prev;
-          localStorage.setItem(HISTORY_KEY, JSON.stringify(hist));
+        try {
+          const hist = JSON.parse(saved);
+          if (hist.length > 0) {
+            hist[0].slides = prev;
+            safeSaveToLocalStorage(HISTORY_KEY, hist);
+          }
+        } catch (e) {
+          console.error("Failed to sync slides to history", e);
         }
       }
       return prev;
@@ -195,11 +210,15 @@ const App: React.FC = () => {
       setSlides(current => {
         const saved = localStorage.getItem(HISTORY_KEY);
         if (saved) {
-          const hist = JSON.parse(saved);
-          // Update the first record if it matches current generation session
-          if (hist.length > 0 && hist[0].config.sourceText === config.sourceText) {
-            hist[0].slides = current;
-            localStorage.setItem(HISTORY_KEY, JSON.stringify(hist));
+          try {
+            const hist = JSON.parse(saved);
+            // Update the first record if it matches current generation session
+            if (hist.length > 0 && hist[0].config.sourceText === config.sourceText) {
+              hist[0].slides = current;
+              safeSaveToLocalStorage(HISTORY_KEY, hist);
+            }
+          } catch (e) {
+            console.error("Failed to sync regenerated slide to history", e);
           }
         }
         return current;

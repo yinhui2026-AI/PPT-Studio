@@ -4,19 +4,22 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "tsx server.ts",
     "build": "vite build",
+    "start": "node server.ts",
     "preview": "vite preview",
     "lint": "tsc --noEmit"
   },
   "dependencies": {
+    "@google/genai": "^1.33.0",
+    "express": "^5.2.1",
+    "jspdf": "^3.0.4",
+    "lucide-react": "^0.561.0",
+    "mammoth": "1.8.0",
+    "pdfjs-dist": "4.0.379",
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
-    "@google/genai": "^1.33.0",
-    "lucide-react": "^0.561.0",
-    "jspdf": "^3.0.4",
-    "mammoth": "1.8.0",
-    "pdfjs-dist": "4.0.379"
+    "tsx": "^4.21.0"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",

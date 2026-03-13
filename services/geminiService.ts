@@ -1,13 +1,16 @@
 
-import { GoogleGenAI, Type } from "@google/genai";
 import { SlideContent, SlideStyle } from '../types';
 import { STYLES } from '../constants';
 
-const getClient = () => {
+const getHeaders = () => {
   const customKey = localStorage.getItem('custom_gemini_api_key');
-  const apiKey = customKey || process.env.API_KEY;
-  if (!apiKey) throw new Error("API Key not found. Please select or input an API Key first.");
-  return new GoogleGenAI({ apiKey });
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  if (customKey) {
+    headers['x-api-key'] = customKey;
+  }
+  return headers;
 };
 
 export const generateOutline = async (
@@ -15,7 +18,6 @@ export const generateOutline = async (
   count: number,
   style: SlideStyle
 ): Promise<Omit<SlideContent, 'isGenerating'>[]> => {
-  const ai = getClient();
   const styleDef = STYLES.find(s => s.id === style);
   const truncatedText = text.length > 25000 ? text.substring(0, 25000) + "..." : text;
 
@@ -33,50 +35,19 @@ export const generateOutline = async (
     ${truncatedText}
   `;
 
-  const schema = {
-    type: Type.ARRAY,
-    items: {
-      type: Type.OBJECT,
-      properties: {
-        title: { type: Type.STRING },
-        bulletPoints: { type: Type.ARRAY, items: { type: Type.STRING } },
-        visualPrompt: { type: Type.STRING }
-      },
-      required: ["title", "bulletPoints", "visualPrompt"],
-    }
-  };
+  const response = await fetch('/api/generate-outline', {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify({ prompt, count, styleName: styleDef?.name }),
+  });
 
-  const callModel = async (modelName: string, configOverrides: any) => {
-    const config = {
-      responseMimeType: 'application/json',
-      responseSchema: schema,
-      systemInstruction: "你是一个专业的PPT架构师。只输出JSON格式内容。",
-      ...configOverrides
-    };
-    const response = await ai.models.generateContent({
-      model: modelName,
-      contents: [{ parts: [{ text: prompt }] }],
-      config
-    });
-    if (!response.text) throw new Error("Empty response");
-    return JSON.parse(response.text.trim());
-  };
-
-  try {
-    const rawData = await callModel('gemini-3.1-pro-preview', {
-      maxOutputTokens: 16384,
-      thinkingConfig: { thinkingBudget: 8192 } 
-    });
-    return processRawData(rawData);
-  } catch (err) {
-    try {
-      const rawData = await callModel('gemini-3.1-pro-preview', { maxOutputTokens: 12000 });
-      return processRawData(rawData);
-    } catch {
-      const rawData = await callModel('gemini-3-flash-preview', { maxOutputTokens: 12000 });
-      return processRawData(rawData);
-    }
+  if (!response.ok) {
+    const errorData = await response.json();
+    throw new Error(errorData.error || "Failed to generate outline");
   }
+
+  const rawData = await response.json();
+  return processRawData(rawData);
 };
 
 const processRawData = (rawData: any[]): Omit<SlideContent, 'isGenerating'>[] => {
@@ -95,51 +66,34 @@ export const generateSlideImage = async (
   userImageBase64?: string,
   refinement?: string
 ): Promise<string> => {
-  const ai = getClient();
   const styleDef = STYLES.find(s => s.id === style);
 
-  const textPart = {
-    text: `
-      ${styleDef?.promptModifier}
-      
-      TASK: Create a professional slide page.
-      TITLE: "${slide.title}"
-      BULLET POINTS: ${slide.bulletPoints.join('; ')}
-      INITIAL VISUAL CONCEPT: ${slide.visualPrompt}
-      
-      ${refinement ? `CRITICAL MODIFICATION REQUEST: "${refinement}". Please strictly follow this new user instruction while maintaining the original content and overall professional style.` : ""}
-      
-      ${userImageBase64 ? "USER PORTRAIT INTEGRATION: I have provided a photo. Identify the person and feature them as the professional speaker or central character. Integrate them naturally into the layout." : ""}
-      
-      MANDATORY: High-quality professional slide layout, legible Chinese text, aesthetic balance.
-    `
-  };
+  const prompt = `
+    ${styleDef?.promptModifier}
+    
+    TASK: Create a professional slide page.
+    TITLE: "${slide.title}"
+    BULLET POINTS: ${slide.bulletPoints.join('; ')}
+    INITIAL VISUAL CONCEPT: ${slide.visualPrompt}
+    
+    ${refinement ? `CRITICAL MODIFICATION REQUEST: "${refinement}". Please strictly follow this new user instruction while maintaining the original content and overall professional style.` : ""}
+    
+    ${userImageBase64 ? "USER PORTRAIT INTEGRATION: I have provided a photo. Identify the person and feature them as the professional speaker or central character. Integrate them naturally into the layout." : ""}
+    
+    MANDATORY: High-quality professional slide layout, legible Chinese text, aesthetic balance.
+  `;
 
-  const parts: any[] = [textPart];
-  if (userImageBase64) {
-    parts.push({
-      inlineData: {
-        data: userImageBase64.split(',')[1] || userImageBase64,
-        mimeType: 'image/jpeg'
-      }
-    });
+  const response = await fetch('/api/generate-image', {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify({ prompt, userImageBase64 }),
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json();
+    throw new Error(errorData.error || "Failed to generate image");
   }
 
-  try {
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.1-flash-image-preview',
-      contents: { parts },
-      config: {
-        imageConfig: { aspectRatio: "16:9", imageSize: "1K" }
-      }
-    });
-
-    for (const part of response.candidates?.[0]?.content?.parts || []) {
-      if (part.inlineData) return `data:image/png;base64,${part.inlineData.data}`;
-    }
-    throw new Error("No image data");
-  } catch (error) {
-    console.error(`Image generation error:`, error);
-    throw error;
-  }
+  const { imageUrl } = await response.json();
+  return imageUrl;
 };
