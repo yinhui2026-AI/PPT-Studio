@@ -3,10 +3,13 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { GoogleGenAI, Type } from "@google/genai";
 
+console.log("Server script starting...");
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 async function startServer() {
+  console.log("Initializing Express application...");
   const app = express();
   const PORT = parseInt(process.env.PORT || "8080", 10);
 
@@ -137,8 +140,12 @@ async function startServer() {
   }
 
   app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server started on port ${PORT}`);
+    console.log(`>>> Server is listening on 0.0.0.0:${PORT}`);
+    console.log(`>>> NODE_ENV: ${process.env.NODE_ENV}`);
   });
 }
 
-startServer();
+startServer().catch(err => {
+  console.error("CRITICAL: Failed to start server:", err);
+  process.exit(1);
+});
