@@ -13,7 +13,7 @@ const __dirname = path.dirname(__filename);
 async function startServer() {
   console.log("Initializing Express application...");
   const app = express();
-  const PORT = parseInt(process.env.PORT || "8080", 10);
+  const PORT = 3000;
 
   app.use(express.json({ limit: '100mb' }));
 
@@ -115,7 +115,15 @@ async function startServer() {
       let imageUrl = null;
       for (const part of response.candidates?.[0]?.content?.parts || []) {
         if (part.inlineData) {
-          imageUrl = `data:image/png;base64,${part.inlineData.data}`;
+          const buffer = Buffer.from(part.inlineData.data, 'base64');
+          const filename = `img_${Date.now()}_${Math.random().toString(36).substring(7)}.png`;
+          const bucket = storage.bucket(BUCKET_NAME);
+          const file = bucket.file(`images/${filename}`);
+          await file.save(buffer, {
+            metadata: { contentType: "image/png" }
+          });
+          
+          imageUrl = `/api/image/${filename}`;
           break;
         }
       }
@@ -128,6 +136,36 @@ async function startServer() {
     }
   });
 
+  app.get("/api/image/:filename", async (req, res) => {
+    try {
+      const { filename } = req.params;
+      const bucket = storage.bucket(BUCKET_NAME);
+      const file = bucket.file(`images/${filename}`);
+
+      const [exists] = await file.exists();
+      if (!exists) {
+        return res.status(404).json({ error: "Image not found" });
+      }
+
+      res.setHeader('Content-Type', 'image/png');
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+      
+      file.createReadStream()
+        .on('error', (err) => {
+          console.error("Image stream error:", err);
+          if (!res.headersSent) {
+            res.status(500).json({ error: err.message });
+          }
+        })
+        .pipe(res);
+    } catch (error: any) {
+      console.error("Image fetch error:", error);
+      if (!res.headersSent) {
+        res.status(500).json({ error: error.message });
+      }
+    }
+  });
+
   app.post("/api/save-ppt", async (req, res) => {
     try {
       const { outline, title } = req.body;
@@ -137,13 +175,33 @@ async function startServer() {
 
       const pptx = new PptxGenJS();
       pptx.layout = "LAYOUT_16x9";
+      const bucket = storage.bucket(BUCKET_NAME);
 
       // Add slides
-      outline.forEach((item: any) => {
+      for (const item of outline) {
         const slide = pptx.addSlide();
         
         if (item.generatedImageUrl) {
-          slide.addImage({ data: item.generatedImageUrl, x: 0, y: 0, w: "100%", h: "100%" });
+          try {
+            // Extract filename from our local API URL
+            const match = item.generatedImageUrl.match(/\/api\/image\/(img_[^?]+)/);
+            if (match) {
+              const filename = `images/${match[1]}`;
+              const file = bucket.file(filename);
+              const [buffer] = await file.download();
+              const base64 = `data:image/png;base64,${buffer.toString('base64')}`;
+              slide.addImage({ data: base64, x: 0, y: 0, w: "100%", h: "100%" });
+            } else if (item.generatedImageUrl.startsWith('data:image')) {
+              // Fallback for old base64 data
+              slide.addImage({ data: item.generatedImageUrl, x: 0, y: 0, w: "100%", h: "100%" });
+            } else {
+              // Fallback to URL path
+              slide.addImage({ path: item.generatedImageUrl, x: 0, y: 0, w: "100%", h: "100%" });
+            }
+          } catch (imgErr) {
+            console.error("Failed to embed image:", imgErr);
+            slide.addText("Image failed to load", { x: 0.5, y: 0.5, w: "90%", fontSize: 24, color: "FF0000" });
+          }
         } else {
           slide.addText(item.title || "Untitled Slide", {
             x: 0.5,
@@ -164,14 +222,13 @@ async function startServer() {
             });
           }
         }
-      });
+      }
 
       const buffer = await pptx.write({ outputType: "nodebuffer" }) as Buffer;
       const timestamp = new Date().getTime();
       const safeTitle = (title || "presentation").replace(/[^a-z0-9]/gi, "_").toLowerCase();
       const filename = `ppt_${timestamp}_${safeTitle}.pptx`;
 
-      const bucket = storage.bucket(BUCKET_NAME);
       const file = bucket.file(filename);
 
       await file.save(buffer, {
