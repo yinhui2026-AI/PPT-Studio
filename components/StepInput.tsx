@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { GenerationConfig, SlideStyle } from '../types';
 import { STYLES, MAX_SLIDES, MIN_SLIDES } from '../constants';
-import { FileText, Wand2, Upload, Loader2, BrainCircuit, User, X } from 'lucide-react';
+import { FileText, Wand2, Upload, Loader2, BrainCircuit, User, X, File, CheckCircle2 } from 'lucide-react';
 import mammoth from 'mammoth';
 import * as pdfjsLib from 'pdfjs-dist';
 
@@ -19,6 +19,9 @@ const StepInput: React.FC<Props> = ({ onNext, isLoading }) => {
   const [selectedStyle, setSelectedStyle] = useState<SlideStyle>(SlideStyle.PROFESSIONAL);
   const [isFileLoading, setIsFileLoading] = useState(false);
   const [userImage, setUserImage] = useState<string | null>(null);
+  const [templateFile, setTemplateFile] = useState<File | null>(null);
+  const [isTemplateUploading, setIsTemplateUploading] = useState(false);
+  const [templateUrl, setTemplateUrl] = useState<string | null>(null);
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -61,13 +64,47 @@ const StepInput: React.FC<Props> = ({ onNext, isLoading }) => {
     reader.readAsDataURL(file);
   };
 
+  const handleTemplateUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setTemplateFile(file);
+    setIsTemplateUploading(true);
+    
+    // Upload template to server
+    const formData = new FormData();
+    formData.append('template', file);
+    
+    try {
+      const response = await fetch('/api/upload-template', {
+        method: 'POST',
+        body: formData
+      });
+      const data = await response.json();
+      if (data.success) {
+        setTemplateUrl(data.templateUrl);
+        setSelectedStyle(SlideStyle.NONE); // Auto-select NONE style when template is used
+      } else {
+        alert("模板上传失败: " + data.error);
+        setTemplateFile(null);
+      }
+    } catch (err) {
+      console.error("Template upload error", err);
+      alert("模板上传失败");
+      setTemplateFile(null);
+    } finally {
+      setIsTemplateUploading(false);
+      e.target.value = '';
+    }
+  };
+
   const handleSubmit = () => {
     if (!text.trim()) return;
     onNext({
       sourceText: text,
       slideCount,
       style: selectedStyle,
-      userImage: userImage || undefined
+      userImage: userImage || undefined,
+      templateUrl: templateUrl || undefined
     });
   };
 
@@ -138,6 +175,30 @@ const StepInput: React.FC<Props> = ({ onNext, isLoading }) => {
 
         <div className="space-y-6">
           <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-6">
+            
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-3">使用本地模板</label>
+              <label className="flex items-center justify-center gap-2 w-full p-4 border-2 border-dashed border-slate-300 rounded-xl cursor-pointer hover:border-blue-500 hover:bg-blue-50 transition-colors">
+                 {isTemplateUploading ? (
+                    <div className="flex items-center gap-2 text-slate-500 text-sm"><Loader2 className="w-4 h-4 animate-spin" /> 上传模板中...</div>
+                 ) : templateUrl ? (
+                    <div className="flex flex-col items-center gap-1 text-blue-600">
+                      <CheckCircle2 className="w-6 h-6 text-green-500" />
+                      <div className="text-xs font-semibold max-w-[200px] truncate">{templateFile?.name || "已上传"}</div>
+                      <button onClick={(e) => { e.preventDefault(); setTemplateUrl(null); setTemplateFile(null); }} className="text-[10px] text-red-500 hover:underline">移除模板</button>
+                    </div>
+                 ) : (
+                    <div className="flex flex-col items-center text-slate-500">
+                       <Upload className="w-5 h-5 mb-1" />
+                       <span className="text-xs font-medium">上传 PPTX 模板</span>
+                    </div>
+                 )}
+                 <input type="file" accept=".pptx" className="hidden" onChange={handleTemplateUpload} disabled={isTemplateUploading} />
+              </label>
+            </div>
+
+            <hr className="border-slate-100" />
+
             <div>
               <label className="block text-sm font-semibold text-slate-700 mb-2">生成页数: {slideCount} 页</label>
               <input type="range" min={MIN_SLIDES} max={MAX_SLIDES} value={slideCount} onChange={(e) => setSlideCount(parseInt(e.target.value))} className="w-full accent-blue-600" />
@@ -155,7 +216,7 @@ const StepInput: React.FC<Props> = ({ onNext, isLoading }) => {
               </div>
             </div>
 
-            <button onClick={handleSubmit} disabled={!text.trim() || isLoading} className="w-full py-4 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold flex flex-col items-center justify-center">
+            <button onClick={handleSubmit} disabled={!text.trim() || isLoading || isTemplateUploading} className="w-full py-4 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold flex flex-col items-center justify-center">
               {isLoading ? <Loader2 className="animate-spin" /> : <span>生成 AI PPT</span>}
             </button>
           </div>

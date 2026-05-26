@@ -12,7 +12,8 @@ export enum SlideStyle {
   CARTOON = 'CARTOON',
   OFFICIAL_RED = 'OFFICIAL_RED',
   MINIMALIST = 'MINIMALIST',
-  TECH_DARK = 'TECH_DARK'
+  TECH_DARK = 'TECH_DARK',
+  NONE = 'NONE'
 }
 
 export interface SlideContent {
@@ -32,6 +33,7 @@ export interface GenerationConfig {
   style: SlideStyle;
   userImage?: string; // Base64 encoded user image
   customStylePrompt?: string;
+  templateUrl?: string; // Uploaded template URL
 }
 
 export interface HistoryRecord {

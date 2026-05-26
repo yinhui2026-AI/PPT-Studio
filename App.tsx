@@ -123,7 +123,8 @@ const App: React.FC = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           outline: currentSlides, 
-          title: currentSlides[0]?.title || "presentation" 
+          title: currentSlides[0]?.title || "presentation",
+          templateUrl: config?.templateUrl
         })
       });
       const data = await response.json();
@@ -184,6 +185,8 @@ const App: React.FC = () => {
 
     for (const slide of currentSlides) {
       if (slide.generatedImageUrl) continue; 
+      if (cfg.style === SlideStyle.NONE) continue;
+      
       updateSlideState(slide.id, { isGenerating: true, error: undefined });
       try {
         const imageUrl = await generateSlideImage(slide, cfg.style, cfg.userImage);

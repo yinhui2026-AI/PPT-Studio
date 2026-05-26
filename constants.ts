@@ -36,6 +36,13 @@ export const STYLES: StyleDefinition[] = [
     description: '大量留白、优雅排版、简单视觉，适合高端展示。',
     promptModifier: 'Create an ultra-minimalist presentation slide. High fashion or architectural aesthetic. Lots of whitespace. Elegant, thin typography. Muted, pastel, or monochrome earth tones. Sophisticated simplicity.',
     previewColor: 'bg-stone-400'
+  },
+  {
+    id: SlideStyle.NONE,
+    name: '不使用 AI 配图',
+    description: '仅生成大纲文本，不生成任何插图，适合使用自带配图的模板。',
+    promptModifier: '',
+    previewColor: 'bg-slate-200'
   }
 ];
 
